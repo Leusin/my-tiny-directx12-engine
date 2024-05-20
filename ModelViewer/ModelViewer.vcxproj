@@ -136,9 +136,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="ModelViewer.h" />
   </ItemGroup>
@@ -150,6 +147,9 @@
     <ProjectReference Include="..\Core\Core.vcxproj">
       <Project>{3dab8725-ce49-4767-b827-5d100e2a2db1}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
