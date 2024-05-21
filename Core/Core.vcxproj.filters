@@ -48,6 +48,9 @@
     <ClInclude Include="Utility.h">
       <Filter>Helper</Filter>
     </ClInclude>
+    <ClInclude Include="CommandQueue.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="GameCore.cpp">
@@ -63,6 +66,9 @@
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="Utility.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="CommandQueue.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>

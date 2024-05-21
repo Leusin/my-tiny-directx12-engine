@@ -154,6 +154,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CommandQueue.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="GameCore.h" />
     <ClInclude Include="Graphics.h" />
@@ -166,6 +167,7 @@
     <ClInclude Include="Utility.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CommandQueue.cpp" />
     <ClCompile Include="GameCore.cpp" />
     <ClCompile Include="Graphics.cpp" />
     <ClCompile Include="pch.cpp">
