@@ -1,3 +1,6 @@
+/*
+* IGameApp 클래스에 사용될 6가지 윈도우 이벤트를 반환하는 구조체가 정의되어 있습니다.
+*/
 #pragma once
 
 #pragma once

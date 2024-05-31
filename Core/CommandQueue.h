@@ -16,11 +16,7 @@ public:
     CommandQueue(Microsoft::WRL::ComPtr<ID3D12Device2> device, D3D12_COMMAND_LIST_TYPE type);
     virtual ~CommandQueue();
 
-
-protected:
-    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CreateCommandAllocator();
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> CreateCommandList(Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator);
-
+public:
     /// <summary>
     /// 커맨드 큐로부터 사용할 수 있는 커맨드 리스트를 가져옵니다.
     /// </summary>
@@ -40,6 +36,10 @@ protected:
     void Flush();
 
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> GetD3D12CommandQueue() const;
+
+protected:
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> CreateCommandAllocator();
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> CreateCommandList(Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator);
 
 private:
     /// <summary>

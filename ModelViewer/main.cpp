@@ -1,5 +1,5 @@
 #include "framework.h"
-#include "ModelViewer.h"
+#include "RollingCube.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE hPrevInstance,
@@ -10,11 +10,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
 
-    ModelViewer app;
-    auto classname = L"MyApp";
+    RollingCube app;
+    auto classname = L"Rolling Cube App";
 
-    RunApplication* appRunner = new RunApplication(
-        app, classname, hInstance, nCmdShow);
+    RunApplication* appRunner = new RunApplication(app, classname, hInstance, nCmdShow);
 
     appRunner->MessageLoop();
     appRunner->Terminate();

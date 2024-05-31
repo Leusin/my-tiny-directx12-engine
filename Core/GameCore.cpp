@@ -3,8 +3,6 @@
 #include "Display.h"
 #include "Logger.h"
 
-#include "SystemTime.h"
-
 #include <io.h> // For Translation mode constants _O_TEXT (https://docs.microsoft.com/en-us/cpp/c-runtime-library/translation-mode-constants)
 #include <fcntl.h>
 
@@ -26,6 +24,9 @@ RunApplication::RunApplication(IGameApp& app, const wchar_t* className, HINSTANC
 #if defined(_DEBUG)
     // std::cout 로 콘솔창 생성
     CreateConsole();
+
+    // debug 로 전역 로그 래벨 설정
+    spdlog::set_level(spdlog::level::debug);
 #endif
 
     InitializeWindow(className, hInst);
@@ -33,6 +34,11 @@ RunApplication::RunApplication(IGameApp& app, const wchar_t* className, HINSTANC
     Initialize();
 
     ShowWindow(m_hWnd, nCmdShow /*SW_SHOWDEFAULT*/);
+}
+
+RunApplication::~RunApplication()
+{
+    Flush();
 }
 
 void RunApplication::InitializeWindow(const wchar_t* className, HINSTANCE hInst)
@@ -48,22 +54,24 @@ void RunApplication::Initialize()
 {
     // 로거 등록
     spdlog::stdout_color_mt(m_loggerName);
-
-    spdlog::get(m_loggerName)->info("초기화 시작");
-
-    SystemTime::Initialize();
+    spdlog::get(m_loggerName)->info("초기화 시작...");
 
     m_graphics->Initialize(m_hWnd, m_width, m_hight);
+    m_app.SetGraphics(m_graphics.get());
 
-    // TODO-input 초기화
+    spdlog::get(m_loggerName)->info("그래픽스 초기화 완료..");
 
     m_app.Startup();
+    m_app.LoadContent();
 
-    spdlog::get(m_loggerName)->info("초기화 완료");
+    spdlog::get(m_loggerName)->info("응용프로그램 초기화 완료..");
 }
 
 void RunApplication::Terminate()
 {
+    Flush();
+
+    m_app.UnloadContent();
     m_app.Cleanup();
 
     m_graphics->Shutdown();
@@ -71,53 +79,303 @@ void RunApplication::Terminate()
 
 bool RunApplication::Update()
 {
-    // 델타타임 가져오기
-    static int64_t lastTick = SystemTime::GetCurrentTick();
-    int64_t currentTick     = SystemTime::GetCurrentTick();
-    double deltaTime        = SystemTime::TimeBetweenTicks(lastTick, currentTick);
-    lastTick                = currentTick;
+    // OnUpdate
+    m_UpdateClock.Tick();
+    m_FrameCounter++;
 
-    m_app.Update(static_cast<float>(deltaTime));
-    m_app.RenderScene();
+    UpdateEventArgs updateEventArgs(m_UpdateClock.GetDeltaSeconds(), m_UpdateClock.GetTotalSeconds());
+    m_app.Update(updateEventArgs);
 
-    m_graphics->Update();
-    m_graphics->Render();
+    // OnRender
+    m_RenderClock.Tick();
+    RenderEventArgs renderEventArgs(m_RenderClock.GetDeltaSeconds(), m_RenderClock.GetTotalSeconds());
+    m_app.Render(renderEventArgs);
 
     return !m_app.IsDone();
 }
 
 bool IGameApp::IsDone(void)
 {
-    return GetAsyncKeyState(VK_ESCAPE) & 0x8000;
+    return m_isDone;
+}
+
+void IGameApp::ToggleIsDone()
+{
+    m_isDone = m_isDone ? false : true;
+}
+
+void IGameApp::Update(UpdateEventArgs& e)
+{
+}
+
+void IGameApp::Render(RenderEventArgs& e)
+{
+}
+
+void IGameApp::OnKeyPressed(KeyEventArgs& e)
+{
+}
+
+void IGameApp::OnKeyReleased(KeyEventArgs& e)
+{
+}
+
+void IGameApp::OnMouseMoved(MouseMotionEventArgs& e)
+{
+}
+
+void IGameApp::OnMouseButtonPressed(MouseButtonEventArgs& e)
+{
+}
+
+void IGameApp::OnMouseButtonReleased(MouseButtonEventArgs& e)
+{
+}
+
+void IGameApp::OnMouseWheel(MouseWheelEventArgs& e)
+{
+}
+
+int IGameApp::GetClientWidth() const
+{
+    return m_width;
+}
+
+int IGameApp::GetClientHeight() const
+{
+    return m_height;
+}
+
+void IGameApp::OnResize(ResizeEventArgs& e)
+{
+    m_width  = e.Width;
+    m_height = e.Height;
+}
+
+void IGameApp::OnWindowDestroy()
+{
+    UnloadContent();
+}
+
+void IGameApp::ToggleFullscreen()
+{
+    g_app->SetFullscreen(m_fullscreen);
+    m_fullscreen = m_fullscreen ? false : true;
+}
+
+Graphics& IGameApp::GetGraphics() const
+{
+    return *m_graphics;
+}
+
+void IGameApp::SetGraphics(Graphics* graphics)
+{
+    m_graphics = graphics;
+}
+
+MouseButtonEventArgs::MouseButton DecodeMouseButton(UINT messageID)
+{
+    MouseButtonEventArgs::MouseButton mouseButton = MouseButtonEventArgs::None;
+    switch (messageID)
+    {
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
+        {
+            mouseButton = MouseButtonEventArgs::Left;
+        }
+        break;
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        case WM_RBUTTONDBLCLK:
+        {
+            mouseButton = MouseButtonEventArgs::Right;
+        }
+        break;
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONUP:
+        case WM_MBUTTONDBLCLK:
+        {
+            mouseButton = MouseButtonEventArgs::Middel;
+        }
+        break;
+    }
+
+    return mouseButton;
 }
 
 LRESULT RunApplication::GetWinMssageProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
-        case WM_SIZE:
-        {
-            RECT clientRect = {};
-            ::GetClientRect(m_hWnd, &clientRect);
-
-            int width  = clientRect.right - clientRect.left;
-            int height = clientRect.bottom - clientRect.top;
-            m_graphics->Resize(width, height);
-        }
-        break;
-        case WM_DESTROY:
-            PostQuitMessage(0);
-            break;
-
-        default:
-            return DefWindowProc(hWnd, message, wParam, lParam);
+        case WM_SYSKEYDOWN:
         case WM_KEYDOWN:
         {
-            bool alt = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            MSG charMsg;
+            // Get the Unicode character (UTF-16)
+            unsigned int c = 0;
+            // For printable characters, the next message will be WM_CHAR.
+            // This message contains the character code we need to send the KeyPressed event.
+            // Inspired by the SDL 1.2 implementation.
+            if (PeekMessage(&charMsg, hWnd, 0, 0, PM_NOREMOVE) && charMsg.message == WM_CHAR)
+            {
+                GetMessage(&charMsg, hWnd, 0, 0);
+                c = static_cast<unsigned int>(charMsg.wParam);
+            }
+            bool shift            = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+            bool control          = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool alt              = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            KeyCode::Key key      = (KeyCode::Key)wParam;
+            unsigned int scanCode = (lParam & 0x00FF0000) >> 16;
+            KeyEventArgs keyEventArgs(key, c, KeyEventArgs::Pressed, shift, control, alt);
+            m_app.OnKeyPressed(keyEventArgs);
         }
+        break;
+        case WM_SYSKEYUP:
+        case WM_KEYUP:
+        {
+            bool shift            = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+            bool control          = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool alt              = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            KeyCode::Key key      = (KeyCode::Key)wParam;
+            unsigned int c        = 0;
+            unsigned int scanCode = (lParam & 0x00FF0000) >> 16;
+
+            // Determine which key was released by converting the key code and the scan code
+            // to a printable character (if possible).
+            // Inspired by the SDL 1.2 implementation.
+            unsigned char keyboardState[256];
+            auto getkeystate = GetKeyboardState(keyboardState);
+            wchar_t translatedCharacters[4];
+            if (int result = ToUnicodeEx(
+                                 static_cast<UINT>(wParam), scanCode, keyboardState, translatedCharacters, 4, 0, NULL) > 0)
+            {
+                c = translatedCharacters[0];
+            }
+
+            KeyEventArgs keyEventArgs(key, c, KeyEventArgs::Released, shift, control, alt);
+            m_app.OnKeyReleased(keyEventArgs);
+        }
+        break;
+        // The default window procedure will play a system notification sound
+        // when pressing the Alt+Enter keyboard combination if this message is
+        // not handled.
+        case WM_SYSCHAR:
+            break;
+        case WM_MOUSEMOVE:
+        {
+            bool lButton = (wParam & MK_LBUTTON) != 0;
+            bool rButton = (wParam & MK_RBUTTON) != 0;
+            bool mButton = (wParam & MK_MBUTTON) != 0;
+            bool shift   = (wParam & MK_SHIFT) != 0;
+            bool control = (wParam & MK_CONTROL) != 0;
+
+            int x = ((int)(short)LOWORD(lParam));
+            int y = ((int)(short)HIWORD(lParam));
+
+            MouseMotionEventArgs mouseMotionEventArgs(lButton, mButton, rButton, control, shift, x, y);
+            m_app.OnMouseMoved(mouseMotionEventArgs);
+        }
+        break;
+        case WM_LBUTTONDOWN:
+        case WM_RBUTTONDOWN:
+        case WM_MBUTTONDOWN:
+        {
+            bool lButton = (wParam & MK_LBUTTON) != 0;
+            bool rButton = (wParam & MK_RBUTTON) != 0;
+            bool mButton = (wParam & MK_MBUTTON) != 0;
+            bool shift   = (wParam & MK_SHIFT) != 0;
+            bool control = (wParam & MK_CONTROL) != 0;
+
+            int x = ((int)(short)LOWORD(lParam));
+            int y = ((int)(short)HIWORD(lParam));
+
+            MouseButtonEventArgs mouseButtonEventArgs(
+                DecodeMouseButton(message), MouseButtonEventArgs::Pressed, lButton, mButton, rButton, control, shift, x, y);
+            m_app.OnMouseButtonPressed(mouseButtonEventArgs);
+        }
+        break;
+        case WM_LBUTTONUP:
+        case WM_RBUTTONUP:
+        case WM_MBUTTONUP:
+        {
+            bool lButton = (wParam & MK_LBUTTON) != 0;
+            bool rButton = (wParam & MK_RBUTTON) != 0;
+            bool mButton = (wParam & MK_MBUTTON) != 0;
+            bool shift   = (wParam & MK_SHIFT) != 0;
+            bool control = (wParam & MK_CONTROL) != 0;
+
+            int x = ((int)(short)LOWORD(lParam));
+            int y = ((int)(short)HIWORD(lParam));
+
+            MouseButtonEventArgs mouseButtonEventArgs(
+                DecodeMouseButton(message), MouseButtonEventArgs::Released, lButton, mButton, rButton, control, shift, x, y);
+            m_app.OnMouseButtonReleased(mouseButtonEventArgs);
+        }
+        break;
+        case WM_MOUSEWHEEL:
+        {
+            // The distance the mouse wheel is rotated.
+            // A positive value indicates the wheel was rotated to the right.
+            // A negative value indicates the wheel was rotated to the left.
+            float zDelta    = ((int)(short)HIWORD(wParam)) / (float)WHEEL_DELTA;
+            short keyStates = (short)LOWORD(wParam);
+
+            bool lButton = (keyStates & MK_LBUTTON) != 0;
+            bool rButton = (keyStates & MK_RBUTTON) != 0;
+            bool mButton = (keyStates & MK_MBUTTON) != 0;
+            bool shift   = (keyStates & MK_SHIFT) != 0;
+            bool control = (keyStates & MK_CONTROL) != 0;
+
+            int x = ((int)(short)LOWORD(lParam));
+            int y = ((int)(short)HIWORD(lParam));
+
+            // Convert the screen coordinates to client coordinates.
+            POINT clientToScreenPoint;
+            clientToScreenPoint.x = x;
+            clientToScreenPoint.y = y;
+            ScreenToClient(hWnd, &clientToScreenPoint);
+
+            MouseWheelEventArgs mouseWheelEventArgs(
+                zDelta, lButton, mButton, rButton, control, shift, (int)clientToScreenPoint.x, (int)clientToScreenPoint.y);
+            m_app.OnMouseWheel(mouseWheelEventArgs);
+        }
+        break;
+        case WM_SIZE:
+        {
+            int width  = ((int)(short)LOWORD(lParam));
+            int height = ((int)(short)HIWORD(lParam));
+
+
+            ResizeEventArgs resizeEventArgs(width, height);
+            m_graphics->Resize(width, height);
+            m_app.OnResize(resizeEventArgs);
+        }
+        break;
+        case WM_GETMINMAXINFO:
+        {
+            MINMAXINFO* pMinMaxInfo = (MINMAXINFO*)lParam;
+
+            // 최소 트랙 크기를 설정합니다.
+            pMinMaxInfo->ptMinTrackSize.x = m_minWidth;
+            pMinMaxInfo->ptMinTrackSize.y = m_minHight;
+            return 0; // 메시지가 처리되었음을 알림
+        }
+        case WM_CLOSE:
+        {
+            m_app.ToggleIsDone();
+        }
+        break;
+        default:
+            return DefWindowProcW(hWnd, message, wParam, lParam);
     }
 
     return 0;
+}
+
+void RunApplication::Flush()
+{
+    m_graphics->Flush();
 }
 
 void RunApplication::MessageLoop()
@@ -131,7 +389,10 @@ void RunApplication::MessageLoop()
             TranslateMessage(&msg);
             DispatchMessage(&msg);
 
-            if (msg.message == WM_QUIT) done = true;
+            if (msg.message == WM_QUIT)
+            {
+                done = true;
+            }
         }
 
         if (done) break;
@@ -188,6 +449,60 @@ HWND RunApplication::CreateWindow(HINSTANCE hInst,
     return hWnd;
 }
 
+void RunApplication::SetFullscreen(bool fullscreen)
+{
+    if (m_fullscreen != fullscreen)
+    {
+        m_fullscreen = fullscreen;
+
+        if (m_fullscreen) // Switching to fullscreen.
+        {
+            // Store the current window dimensions so they can be restored
+            // when switching out of fullscreen state.
+            ::GetWindowRect(m_hWnd, &m_windowRect);
+
+            // Set the window style to a borderless window so the client area fills
+            // the entire screen.
+            UINT windowStyle = WS_OVERLAPPEDWINDOW &
+                               ~(WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+
+            ::SetWindowLongW(m_hWnd, GWL_STYLE, windowStyle);
+
+            // Query the name of the nearest display device for the window.
+            // This is required to set the fullscreen dimensions of the window
+            // when using a multi-monitor setup.
+            HMONITOR hMonitor         = ::MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
+            MONITORINFOEX monitorInfo = {};
+            monitorInfo.cbSize        = sizeof(MONITORINFOEX);
+            ::GetMonitorInfo(hMonitor, &monitorInfo);
+
+            ::SetWindowPos(m_hWnd,
+                HWND_TOPMOST,
+                monitorInfo.rcMonitor.left,
+                monitorInfo.rcMonitor.top,
+                monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left,
+                monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top,
+                SWP_FRAMECHANGED | SWP_NOACTIVATE);
+
+            ::ShowWindow(m_hWnd, SW_MAXIMIZE);
+        }
+        else
+        {
+            // Restore all the window decorators.
+            ::SetWindowLong(m_hWnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+
+            ::SetWindowPos(m_hWnd,
+                HWND_NOTOPMOST,
+                m_windowRect.left,
+                m_windowRect.top,
+                m_windowRect.right - m_windowRect.left,
+                m_windowRect.bottom - m_windowRect.top,
+                SWP_FRAMECHANGED | SWP_NOACTIVATE);
+
+            ::ShowWindow(m_hWnd, SW_NORMAL);
+        }
+    }
+}
 
 void RunApplication::CreateConsole()
 {

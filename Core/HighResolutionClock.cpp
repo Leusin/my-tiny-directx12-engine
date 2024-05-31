@@ -23,17 +23,11 @@ void HighResolutionClock::Reset()
     m_totalTime = std::chrono::high_resolution_clock::duration();
 }
 
-void HighResolutionClock::Reset()
-{
-    m_t0        = std::chrono::high_resolution_clock::now();
-    m_deltaTime = std::chrono::high_resolution_clock::duration();
-    m_totalTime = std::chrono::high_resolution_clock::duration();
-}
-
 double HighResolutionClock::GetDeltaNanoseconds() const
 {
     return m_deltaTime.count() * 1.0;
 }
+
 double HighResolutionClock::GetDeltaMicroseconds() const
 {
     return m_deltaTime.count() * 1e-3;

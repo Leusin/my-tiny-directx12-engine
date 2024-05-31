@@ -4,9 +4,6 @@
 
 #include <shellapi.h> // CommandLineToArgvW 함수
 
-Graphics::Graphics()
-{
-}
 
 void Graphics::Initialize(HWND hWnd, uint32_t& width, uint32_t& hight)
 {
@@ -23,42 +20,43 @@ void Graphics::Initialize(HWND hWnd, uint32_t& width, uint32_t& hight)
 
     ComPtr<IDXGIAdapter4> dxgiAdapter4 = GetAdapter(m_useWarp);
 
-    m_device = CreateDevice(dxgiAdapter4);
+    spdlog::get(m_loggerName)->debug("1. 디바이스 생성");
 
-    spdlog::get(m_loggerName)->info("1. 디바이스 생성");
+    m_d3d12Device = CreateDevice(dxgiAdapter4);
 
-    m_commandQueue = CreateCommandQueue(m_device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+    spdlog::get(m_loggerName)->debug("2. 커맨드 큐 생성");
 
-    spdlog::get(m_loggerName)->info("2. 커맨드 큐 생성");
+    m_DirectCommandQueue  = std::make_shared<CommandQueue>(m_d3d12Device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+    m_ComputeCommandQueue = std::make_shared<CommandQueue>(m_d3d12Device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+    m_CopyCommandQueue    = std::make_shared<CommandQueue>(m_d3d12Device, D3D12_COMMAND_LIST_TYPE_COPY);
 
-    m_swapChain = CreateSwapChain(hWnd, m_commandQueue, width, hight, m_numFrames);
+    spdlog::get(m_loggerName)->debug("3. 스왑 체인 생성");
 
-    spdlog::get(m_loggerName)->info("3. 스왑 체인 생성");
+    m_dxgiSwapChain = CreateSwapChain(hWnd, m_DirectCommandQueue->GetD3D12CommandQueue(), width, hight, s_bufferCount);
 
     // 백 버퍼의 인덱스는 스왑 체인에서 직접 쿼리해서 얻을 수 있습니다.
-    m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_currentBackBufferIndex = m_dxgiSwapChain->GetCurrentBackBufferIndex();
 
-    m_rtvDescriptorHeap = CreateDescriptorHeap(m_device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, m_numFrames);
-    m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    spdlog::get(m_loggerName)->debug("4. 디스크립터 힙 생성");
 
-    spdlog::get(m_loggerName)->info("4. 디스크립터 힙 생성");
+    m_d3d12RTVDescriptorHeap = CreateDescriptorHeap(m_d3d12Device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, s_bufferCount);
+    m_rtvDescriptorSize = m_d3d12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
-    UpdateRenderTargetViews(m_device, m_swapChain, m_rtvDescriptorHeap);
+    UpdateRenderTargetViews(m_d3d12Device, m_dxgiSwapChain, m_d3d12RTVDescriptorHeap);
 
     // 커맨드 얼로케이터를 프레임 수만큼 생성합니다.
-    for (int i = 0; i < m_numFrames; ++i)
+    for (int i = 0; i < s_bufferCount; ++i)
     {
-        m_commandAllocators[i] = CreateCommandAllocator(m_device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+        m_commandAllocators[i] = CreateCommandAllocator(m_d3d12Device, D3D12_COMMAND_LIST_TYPE_DIRECT);
     }
+
+    spdlog::get(m_loggerName)->debug("5. 커맨드 리스트 생성");
 
     // 하나의 커맨드 리스트를 생성합니다.
     m_commandList = CreateCommandList(
-        m_device, m_commandAllocators[m_currentBackBufferIndex], D3D12_COMMAND_LIST_TYPE_DIRECT);
+        m_d3d12Device, m_commandAllocators[m_currentBackBufferIndex], D3D12_COMMAND_LIST_TYPE_DIRECT);
 
-    m_fence      = CreateFence(m_device);
-    m_fenceEvent = CreateEventHandle();
-
-    spdlog::get(m_loggerName)->info("5. 펜스와 이벤트 핸들러 생성");
+    spdlog::get(m_loggerName)->debug("5. 펜스와 이벤트 핸들러 생성");
 
     m_isInitialized = true;
 }
@@ -66,112 +64,93 @@ void Graphics::Initialize(HWND hWnd, uint32_t& width, uint32_t& hight)
 void Graphics::Shutdown(void)
 {
     // GPU에 대기 중인 명령 목록을 플러시합니다. (중요)
-    Flush(m_commandQueue, m_fence, m_fenceValue, m_fenceEvent);
-
-    ::CloseHandle(m_fenceEvent);
+    Flush();
 }
 
-void Graphics::Update()
-{
-    // 단순 프레임 업데이트
-
-    static uint64_t s_frameCounter = 0;
-    static double elapsedSeconds   = 0.0;
-    static std::chrono::high_resolution_clock clock;
-    static auto t0 = clock.now();
-
-    s_frameCounter++;
-    auto t1        = clock.now();
-    auto deltaTime = t1 - t0;
-    t0             = t1;
-
-    elapsedSeconds += deltaTime.count() * 1e-9;
-    if (elapsedSeconds > 1.0)
-    {
-        char buffer[500];
-        auto fps = s_frameCounter / elapsedSeconds;
-        sprintf_s(buffer, 500, "FPS: %f", fps);
-        spdlog::info(buffer);
-
-        s_frameCounter = 0;
-        elapsedSeconds = 0.0;
-    }
-}
-
-void Graphics::Render()
-{
-    auto commandAllocator = m_commandAllocators[m_currentBackBufferIndex];
-    auto backBuffer       = m_backBuffers[m_currentBackBufferIndex];
-
-    commandAllocator->Reset();
-    m_commandList->Reset(commandAllocator.Get(), nullptr);
-
-    /*
-     * DirectX 12에서는 그래픽 프로그래머가 자원을 사용하기 전에 올바른 상태에 있는지
-     * 확인해야 합니다. 자원은 하나의 상태에서 다른 상태로 전환해야 하며, 이 작업은
-     * 리소스 배리어를 사용하여 수행하고 해당 리소스 배리어를 명령 리스트에 삽입해야 합니다.
-     * 예를 들어, 스왑 체인의 백 버퍼를 렌더 타겟으로 사용하기 전에, 이를 RENDER_TARGET
-     * 상태로 전환해야 하며, 렌더링된 이미지를 화면에 표시하기 위해서는 이를 PRESENT 상태로
-     * 전환해야 합니다.
-     *
-     * 리소스 배리어에는 여러 종류가 있습니다.
-     * - Transition: 리소스를 한 상태에서 다른 상태로 전환
-     * - Aliasing: 리소스가 동일한 메모리 공간을 공유할 때 사용
-     * - UAV: 동일한 리소스에 대한 모든 읽기 및 쓰기 명령이 완료될 때까지 대기
-     *   - 읽기 > 쓰기: 다른 셰이더에서 쓰기 전에 모든 이전의 읽기 작업이 완료되었는지 보장
-     *   - 쓰기 > 읽기: 다른 셰이더에서 읽기 전에 모든 이전의 쓰기 작업이 완료되었는지 보장
-     *   - 쓰기 > 쓰기: 다른 드로우 또는 디스패치에서 같은 리소스를 쓰려고 시도하는
-     *   서로 다른 셰이더로 인한 레이스 컨디션을 방지(같은 드로우 또는 디스패치 호출에서
-     *   발생할 수 있는 레이스 컨디션은 방지하지 않습니다)
-     */
-
-
-    // 1. 백버퍼 지우기
-    {
-        // 백 버퍼를 RENDER_TARGET 상태로 전환합니다.
-        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(backBuffer.Get(),
-            // 리소스의 상태를 추적하는 방법이 따로 있지만 지금은 하드코딩합니다.
-            D3D12_RESOURCE_STATE_PRESENT,        // 전이 이전 상태
-            D3D12_RESOURCE_STATE_RENDER_TARGET); // 전이 이후 상태
-        m_commandList->ResourceBarrier(1, &barrier);
-
-        // 백 버퍼를 지웁니다.
-        FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(
-            m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBackBufferIndex, m_rtvDescriptorSize);
-
-        m_commandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
-    }
-
-    // 2. 랜더링된 프레임 표시
-    {
-        // 백 버퍼를 PRESENT 상태로 전환합니다.
-        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            backBuffer.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-        m_commandList->ResourceBarrier(1, &barrier);
-
-        // 커맨드 리스트를 종료하고, 커맨드 큐에 제출합니다.
-        ThrowIfFailed(m_commandList->Close());
-
-        // 커맨드 리스트 실행합니다.
-        ID3D12CommandList* const commandLists[] = { m_commandList.Get() };
-        m_commandQueue->ExecuteCommandLists(_countof(commandLists), commandLists);
-
-        m_frameFenceValues[m_currentBackBufferIndex] = Signal(m_commandQueue, m_fence, m_fenceValue);
-
-        // 스왑 체인의 현재 백 버퍼를 화면에 표시합니다.
-        UINT syncInterval = m_vSync ? 1 : 0;
-        UINT presentFlags = m_tearingSupported && !m_vSync ? DXGI_PRESENT_ALLOW_TEARING : 0;
-        ThrowIfFailed(m_swapChain->Present(syncInterval, presentFlags));
-
-        // DXGI_SWAP_EFFECT_FLIP_DISCARD 플립 모델을 사용할 때, 백 버퍼 인덱스의 순서는
-        // 연속적이지 않을 수 있습니다. 스왑 체인의 현재 백 버퍼의 인덱스를 가져옵니다.
-        m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
-
-        // 다음 프레임의 콘텐츠로 현재 백 버퍼의 내용을 덮어쓰기 전에, CPU 스레드를 지연시킵니다.
-        WaitForFenceValue(m_fence, m_frameFenceValues[m_currentBackBufferIndex], m_fenceEvent);
-    }
-}
+//void Graphics::Render()
+//{
+//    auto commandAllocator = m_commandAllocators[m_currentBackBufferIndex];
+//    auto backBuffer       = m_backBuffers[m_currentBackBufferIndex];
+//
+//    commandAllocator->Reset();
+//    m_commandList->Reset(commandAllocator.Get(), nullptr);
+//
+/*
+ * DirectX 12에서는 그래픽 프로그래머가 자원을 사용하기 전에 올바른 상태에 있는지
+ * 확인해야 합니다. 자원은 하나의 상태에서 다른 상태로 전환해야 하며, 이 작업은
+ * 리소스 배리어를 사용하여 수행하고 해당 리소스 배리어를 명령 리스트에 삽입해야 합니다.
+ * 예를 들어, 스왑 체인의 백 버퍼를 렌더 타겟으로 사용하기 전에, 이를 RENDER_TARGET
+ * 상태로 전환해야 하며, 렌더링된 이미지를 화면에 표시하기 위해서는 이를 PRESENT 상태로
+ * 전환해야 합니다.
+ *
+ * 리소스 배리어에는 여러 종류가 있습니다.
+ * - Transition: 리소스를 한 상태에서 다른 상태로 전환
+ * - Aliasing: 리소스가 동일한 메모리 공간을 공유할 때 사용
+ * - UAV: 동일한 리소스에 대한 모든 읽기 및 쓰기 명령이 완료될 때까지 대기
+ *   - 읽기 > 쓰기: 다른 셰이더에서 쓰기 전에 모든 이전의 읽기 작업이 완료되었는지 보장
+ *   - 쓰기 > 읽기: 다른 셰이더에서 읽기 전에 모든 이전의 쓰기 작업이 완료되었는지 보장
+ *   - 쓰기 > 쓰기: 다른 드로우 또는 디스패치에서 같은 리소스를 쓰려고 시도하는
+ *   서로 다른 셰이더로 인한 레이스 컨디션을 방지(같은 드로우 또는 디스패치 호출에서
+ *   발생할 수 있는 레이스 컨디션은 방지하지 않습니다)
+ */
+//
+//
+//    // 1. 백버퍼 지우기
+//    {
+//        // 백 버퍼를 RENDER_TARGET 상태로 전환합니다.
+//        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(backBuffer.Get(),
+//            // 리소스의 상태를 추적하는 방법이 따로 있지만 지금은 하드코딩합니다.
+//            D3D12_RESOURCE_STATE_PRESENT,        // 전이 이전 상태
+//            D3D12_RESOURCE_STATE_RENDER_TARGET); // 전이 이후 상태
+//        m_commandList->ResourceBarrier(1, &barrier);
+//
+//        // 백 버퍼를 지웁니다.
+//        FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
+//        CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(
+//            m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBackBufferIndex, m_rtvDescriptorSize);
+//
+//        m_commandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
+//    }
+//
+//    // 2. 랜더링된 프레임 표시
+//    {
+//        // 백 버퍼를 PRESENT 상태로 전환합니다.
+//        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+//            backBuffer.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+//        m_commandList->ResourceBarrier(1, &barrier);
+//
+//        // 커맨드 리스트를 종료하고, 커맨드 큐에 제출합니다.
+//        ThrowIfFailed(m_commandList->Close());
+//
+//        // 커맨드 리스트 실행합니다.
+//        ID3D12CommandList* const commandLists[] = { m_commandList.Get() };
+//        m_commandQueue->ExecuteCommandLists(_countof(commandLists), commandLists);
+//
+//        // 스왑 체인의 현재 백 버퍼를 화면에 표시합니다.
+//        UINT syncInterval = m_vSync ? 1 : 0;
+//        UINT presentFlags = m_tearingSupported && !m_vSync ? DXGI_PRESENT_ALLOW_TEARING : 0;
+//        ThrowIfFailed(m_swapChain->Present(syncInterval, presentFlags));
+//
+//        // DXGI_SWAP_EFFECT_FLIP_DISCARD 플립 모델을 사용할 때, 백 버퍼 인덱스의 순서는
+//        // 연속적이지 않을 수 있습니다. 스왑 체인의 현재 백 버퍼의 인덱스를 가져옵니다.
+//        m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+//
+//        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+//
+//        for (int i = 0; i < s_bufferCount; ++i)
+//        {
+//            ComPtr<ID3D12Resource> backBuffer;
+//            ThrowIfFailed(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffer)));
+//
+//            m_d3d12Device->CreateRenderTargetView(backBuffer.Get(), nullptr, rtvHandle);
+//
+//            m_backBuffers[i] = backBuffer;
+//
+//            rtvHandle.Offset(m_rtvDescriptorSize);
+//        }
+//
+//    }
+//}
 
 void Graphics::Resize(uint32_t width, uint32_t height)
 {
@@ -179,32 +158,31 @@ void Graphics::Resize(uint32_t width, uint32_t height)
     {
         spdlog::get(m_loggerName)->info("Resize 매서드 호출({}, {})", width, height);
 
+        m_clientWidth  = std::max(static_cast<uint32_t>(1), width);
+        m_clientHeight = std::max(static_cast<uint32_t>(1), height);
+
         // GPU에는 스왑 체인의 백 버퍼를 참조하는 처리 중인 커맨드 리스트가 있을 수 있기 때문에
         // 스왑 체인의 백 버퍼에 대한 모든 참조를 해제해야 합니다.
-        Flush(m_commandQueue, m_fence, m_fenceValue, m_fenceEvent);
+        Flush();
 
-        for (int i = 0; i < m_numFrames; ++i)
+        for (int i = 0; i < s_bufferCount; ++i)
         {
-            // 스왑 체인의 백 버퍼에 대한 로컬 참조를 해제합니다.
             m_backBuffers[i].Reset();
-
-            // 프레임마다의 펜스 값은 현재 백 버퍼 인덱스의 펜스 값으로 재설정됩니다.
-            m_frameFenceValues[i] = m_frameFenceValues[m_currentBackBufferIndex];
-        }
+        };
 
         // 현재 스왑 체인 설명을 조회해 같은 색상 형식 및 스왑 체인 플래그를 사용하여 
         // 스왑 체인 버퍼를 다시 만듭니다. 
         DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
-        ThrowIfFailed(m_swapChain->GetDesc(&swapChainDesc));
+        ThrowIfFailed(m_dxgiSwapChain->GetDesc(&swapChainDesc));
         ThrowIfFailed(
-            m_swapChain->ResizeBuffers(m_numFrames, width, height, swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
+            m_dxgiSwapChain->ResizeBuffers(s_bufferCount, width, height, swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
 
         // 백 버퍼의 인덱스가 동일하지 않을 수 있으므로, 애플리케이션에서 알고 있는 
         // 현재 백 버퍼 인덱스를 업데이트하는 것이 중요합니다.
-        m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+        m_currentBackBufferIndex = m_dxgiSwapChain->GetCurrentBackBufferIndex();
 
         // 해당 버퍼를 참조하는 디스크립터를 업데이트해야 합니다.
-        UpdateRenderTargetViews(m_device, m_swapChain, m_rtvDescriptorHeap);
+        UpdateRenderTargetViews(m_d3d12Device, m_dxgiSwapChain, m_d3d12RTVDescriptorHeap);
     }
 }
 
@@ -342,23 +320,6 @@ ComPtr<ID3D12Device2> Graphics::CreateDevice(ComPtr<IDXGIAdapter4> adapter)
     return d3d12Device2;
 }
 
-ComPtr<ID3D12CommandQueue> Graphics::CreateCommandQueue(ComPtr<ID3D12Device2> device, D3D12_COMMAND_LIST_TYPE type)
-{
-    ComPtr<ID3D12CommandQueue> d3d12CommandQueue;
-
-    D3D12_COMMAND_QUEUE_DESC desc = {};
-    // 우선 순위
-    desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    // 추가 플래그
-    desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    // 단일 GPU 작업의 경우 이 값을 0으로 설정합니다.
-    desc.NodeMask = 0;
-
-    ThrowIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&d3d12CommandQueue)));
-
-    return d3d12CommandQueue;
-}
-
 /// <summary>
 /// 가변 주사율(vrr) 디스플레이를 지원하 앱을 만들려면 스왑 체인을 생성할 때
 /// DXGI_FEATURE_PRESENT_ALLOW_TEARING 을 지정합니다. 또한, sync-interval이 0인
@@ -474,7 +435,7 @@ void Graphics::UpdateRenderTargetViews(ComPtr<ID3D12Device2> device,
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(descriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
     // 스왑 체인의 각 백 버퍼의 수만큼 RTV를 생성합니다.
-    for (int i = 0; i < m_numFrames; ++i)
+    for (int i = 0; i < s_bufferCount; ++i)
     {
         ComPtr<ID3D12Resource> backBuffer;
         ThrowIfFailed(swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffer)));
@@ -507,59 +468,25 @@ ComPtr<ID3D12GraphicsCommandList> Graphics::CreateCommandList(ComPtr<ID3D12Devic
     return commandList;
 }
 
-ComPtr<ID3D12Fence> Graphics::CreateFence(ComPtr<ID3D12Device2> device)
+std::shared_ptr<CommandQueue> Graphics::GetCommandQueue(D3D12_COMMAND_LIST_TYPE type) const
 {
-    ComPtr<ID3D12Fence> fence;
-
-    ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-
-    return fence;
-}
-
-HANDLE Graphics::CreateEventHandle()
-{
-    HANDLE fenceEvent;
-
-    fenceEvent = ::CreateEvent(
-        // NULL 이라면 자식 프로세스에게 상속할 수 없습니다.
-        NULL,
-        // TRUE 라면 수동 리셋 오브젝트를 생성합니다. FALSE 라면 자동 리셋 이벤트
-        // 오브젝트를 생성하고 단일 스레드가 해제된 후 시스템은 자동으로 이벤트 상태를
-        // 신호 없음 상태로 리셋합니다.
-        FALSE,
-        // TRUE 라면 이벤트 오브젝트는 신호를 받을 수 있는 상태로 초기화되고,
-        // FALSE 라면 신호를 받지 않습니다.
-        FALSE,
-        // NULL 이라면 이벤트 오브젝트는 이름 없이 생성됩니다.
-        NULL);
-    assert(fenceEvent && "Failed to create fence event.");
-
-    return fenceEvent;
-}
-
-uint64_t Graphics::Signal(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue)
-{
-    uint64_t fenceValueForSignal = ++fenceValue;
-    ThrowIfFailed(commandQueue->Signal(fence.Get(), fenceValueForSignal));
-
-    return fenceValueForSignal;
-}
-
-/// <summary>
-/// 펜스가 특정 값에 도달하지 않은 경우 CPU 스레드를 대기시키는 데 사용됩니다.
-/// 스왑 체인 버퍼를 리사이즈하려면 버퍼에 대한 모든 참조가 해제되어야 합니다.
-/// 이를 위해 Flush 함수는 GPU가 모든 명령을 완료했는지 확인하는 데 사용됩니다.
-/// </summary>
-void Graphics::WaitForFenceValue(ComPtr<ID3D12Fence> fence,
-    uint64_t fenceValue,
-    HANDLE fenceEvent,
-    std::chrono::milliseconds duration)
-{
-    if (fence->GetCompletedValue() < fenceValue)
+    std::shared_ptr<CommandQueue> commandQueue;
+    switch (type)
     {
-        ThrowIfFailed(fence->SetEventOnCompletion(fenceValue, fenceEvent));
-        ::WaitForSingleObject(fenceEvent, static_cast<DWORD>(duration.count()));
+        case D3D12_COMMAND_LIST_TYPE_DIRECT:
+            commandQueue = m_DirectCommandQueue;
+            break;
+        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+            commandQueue = m_ComputeCommandQueue;
+            break;
+        case D3D12_COMMAND_LIST_TYPE_COPY:
+            commandQueue = m_CopyCommandQueue;
+            break;
+        default:
+            assert(false && "Invalid command queue type.");
     }
+
+    return commandQueue;
 }
 
 /// <summary>
@@ -569,8 +496,56 @@ void Graphics::WaitForFenceValue(ComPtr<ID3D12Fence> fence,
 /// 종료하기 전에 명령 큐에 존재하는 명령 목록이 참조할 수 있는 모든 리소스를 해제하기
 /// 전에 GPU 명령 큐를 플러시하는 것이 강력히 권장됩니다.
 /// </summary>
-void Graphics::Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue, HANDLE fenceEvent)
+void Graphics::Flush()
 {
-    uint64_t fenceValueForSignal = Signal(commandQueue, fence, fenceValue);
-    WaitForFenceValue(fence, fenceValueForSignal, fenceEvent);
+    m_DirectCommandQueue->Flush();
+    m_ComputeCommandQueue->Flush();
+    m_CopyCommandQueue->Flush();
+}
+
+ID3D12Device2* Graphics::GetDevice()
+{
+    return m_d3d12Device.Get();
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE Graphics::GetCurrentRenderTargetView() const
+{
+    return CD3DX12_CPU_DESCRIPTOR_HANDLE(
+        m_d3d12RTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_currentBackBufferIndex, m_rtvDescriptorSize);
+}
+
+Microsoft::WRL::ComPtr<ID3D12Resource> Graphics::GetCurrentBackBuffer() const
+{
+    return m_backBuffers[m_currentBackBufferIndex];
+}
+
+
+UINT Graphics::GetCurrentBackBufferIndex() const
+{
+    return m_currentBackBufferIndex;
+}
+
+UINT Graphics::Present()
+{
+    UINT syncInterval = m_vSync ? 1 : 0;
+    UINT presentFlags = m_isTearingSupported && !m_vSync ? DXGI_PRESENT_ALLOW_TEARING : 0;
+    ThrowIfFailed(m_dxgiSwapChain->Present(syncInterval, presentFlags));
+    m_currentBackBufferIndex = m_dxgiSwapChain->GetCurrentBackBufferIndex();
+
+    return m_currentBackBufferIndex;
+}
+
+bool Graphics::IsVSync() const
+{
+    return m_vSync;
+}
+
+void Graphics::SetVSync(bool vSync)
+{
+    m_vSync = vSync;
+}
+
+void Graphics::ToggleVSync()
+{
+    SetVSync(!m_vSync);
 }
