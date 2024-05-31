@@ -27,7 +27,7 @@ public:
 
 private:
     // 리소스 전이 핼퍼 함수.
-    void TransitionResourceTransitionResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList,
+    void TransitionResource(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> commandList,
         Microsoft::WRL::ComPtr<ID3D12Resource> resource,
         D3D12_RESOURCE_STATES beforeState,
         D3D12_RESOURCE_STATES afterState);

@@ -163,10 +163,12 @@
     <ClInclude Include="HighResolutionClock.h" />
     <ClInclude Include="KeyCodes.h" />
     <ClInclude Include="Logger.h" />
+    <ClInclude Include="MemorySizeDefines.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Display.h" />
     <ClInclude Include="SystemTime.h" />
+    <ClInclude Include="UploadBuffer.h" />
     <ClInclude Include="Utility.h" />
   </ItemGroup>
   <ItemGroup>
@@ -179,6 +181,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="SystemTime.cpp" />
+    <ClCompile Include="UploadBuffer.cpp" />
     <ClCompile Include="Utility.cpp" />
   </ItemGroup>
   <ItemGroup>
