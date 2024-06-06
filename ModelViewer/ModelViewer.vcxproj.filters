@@ -34,14 +34,14 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
     <FxCompile Include="PixelShader.hlsl">
       <Filter>셰이더</Filter>
     </FxCompile>
     <FxCompile Include="VertexShader.hlsl">
       <Filter>셰이더</Filter>
     </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>
