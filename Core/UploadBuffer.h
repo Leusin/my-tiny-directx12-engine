@@ -34,63 +34,94 @@ public:
     }
 
     /// <summary>
-    /// 업로드 힙에 메모리를 할당합니다. 
-    /// 할당은 페이지 크기를 초과할 수 없습니다. memcpy 또는 유사한 메서드를 사용해
-    /// 이 함수에서 반환된 할당 구조의 CPU 포인터에 버퍼 데이터를 복사합니다.
+    /// 메모리 페이지에 있는 메모리 청크(또는 블록)을 할당합니다.
+    /// (청크(Chunk): 한 개의 묶여진 정보)
     /// </summary>
+    /// <param name="sizeInBytes">할당 크기(바이트 단위)</param>
+    /// <param name="alignment">할당 메모리 정렬(바이트 단위). e.g., 상수 버퍼에 대한 할당은 256바이트로 정렬되어야 합니다.</param>
+    /// <returns></returns>
     Allocation Allocate(size_t sizeInBytes, size_t alignment);
 
     /// <summary>
-    /// 재사용을 위해 모든 할당을 해제합니다.
-    /// 커맨드 리스트의 실행을 마쳤을 떄 사용할 수 있습니다.
+    /// 다음 프레임(혹은 다음 커맨드 리스트 기록을 위해)에 재사용할 수 있도록
+    /// 모든 메모리 할당을 재설정 합니다.
     /// </summary>
     void Reset();
+
+    // 커맨드 큐가 수행중이 아닌 경우에만 재설정해야 합니다.
 
 private:
     // 할당자를 위한 페이지 정의
     struct Page
     {
+        /// <summary>
+        /// </summary>
+        /// <param name="sizeInBytes">페이지의 크기</param>
         Page(size_t sizeInBytes);
         ~Page();
 
         /// <summary>
-        /// 페이지에 할당할 공간이 있는지 확인합니다.
+        ///페이지가 요청된 할당을 충족하는지 검사합니다.
         /// </summary>
+        /// <param name="sizeInBytes"></param>
+        /// <param name="alignment"></param>
+        /// <returns>할당을 충족할 수 있으면 true, 할당을 충족할 수 없으면 false를 반환합니다.</returns>
         bool HasSpace(size_t sizeInBytes, size_t alignment) const;
 
         /// <summary>
-        /// 페이지에 메모리를 할당합니다.
-        /// 할당 크기가 너무 크면 std::bad_alloc을 발생시킵니다.
+        /// 실제 할당이 발생하는 곳입니다.
+        /// CPU 데이터를 GPU에 직접 복사(memecpy 사용)합니다.
         /// </summary>
+        /// <param name="sizeInBytes"></param>
+        /// <param name="alignment"></param>
+        /// <returns>GPU 주소를 파이프라인에 바인딩하는 데 사용할 수 있는 구조체를 반환합니다.</returns>
         Allocation Allocate(size_t sizeInBytes, size_t alignment);
 
-        // 재사용을 위해 페이지를 재설정 합니다.
+        /// <summary>
+        /// 페이지의 포인터 오프셋을 0으로 재설정합니다.
+        /// </summary>
         void Reset();
 
     private:
-        Microsoft::WRL::ComPtr<ID3D12Resource> m_d3d12Resource;
+        Microsoft::WRL::ComPtr<ID3D12Resource> _d3d12Resource;
 
         // 기반 포인터.
-        void* m_CPUPtr;
-        D3D12_GPU_VIRTUAL_ADDRESS m_GPUPtr;
+        void* _CPUPtr;
+        D3D12_GPU_VIRTUAL_ADDRESS _GPUPtr;
 
         // 할당된 페이지 사이즈.
-        size_t m_PageSize;
+        size_t _pageSize;
         // 바이트 단위의 현재 할당 오프셋.
-        size_t m_Offset;
+        size_t _offset;
     };
 
     // 메모리 페이지 풀.
     using PagePool = std::deque<std::shared_ptr<Page>>;
 
-    // 사용 가능한 페이지 풀에서 페이지를 요청하거나 
-    // 사용 가능한 페이지가 없는 경우 새 페이지를 만듭니다.
+    /// <summary>
+    /// 사용할 수 있는 페이지 목록에서 
+    /// 새 페이지를 검색하거나 새 페이지를 만듭니다.
+    /// 할당자에게 할당할 페이지가 없거나
+    /// 현재 페이지에 할당 요청을 충족할 수 있는 공간이 없는 경우 사용됩니다.
+    /// </summary>
+    /// <returns>할당 요청을 충족하는 메모리 페이지</returns>
     std::shared_ptr<Page> RequestPage();
 
-    PagePool m_PagePool;
-    PagePool m_AvailablePages;
+    /// <summary>
+    /// 할당자가 생성한 페이지를 저장합니다.
+    /// _availablePages 에 저장된 페이지는 저장되지 않습니다.
+    /// </summary>
+    PagePool _pagePool;
 
-    std::shared_ptr<Page> m_CurrentPage;
+    // Reset 메서드에서 _pagePool는 
+    // _availablePages 큐를 재설정하는데 사용합니다.
+
+    /// <summary>
+    /// 할당 요청에 충족되는 페이지를 저장합니다.
+    /// </summary>
+    PagePool _availablePages;
+
+    std::shared_ptr<Page> _currentPage;
 
     // 각 페이지의 메모리 크기.
     size_t m_PageSize;
