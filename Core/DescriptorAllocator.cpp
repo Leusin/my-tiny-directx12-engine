@@ -107,6 +107,16 @@ DescriptorAllocatorPage::DescriptorAllocatorPage(D3D12_DESCRIPTOR_HEAP_TYPE type
 {
 }
 
+D3D12_DESCRIPTOR_HEAP_TYPE DescriptorAllocatorPage::GetHeapType() const
+{
+    return D3D12_DESCRIPTOR_HEAP_TYPE();
+}
+
+bool DescriptorAllocatorPage::HasSpace(uint32_t numDescriptors) const
+{
+    return false;
+}
+
 uint32_t DescriptorAllocatorPage::NumFreeHandles() const
 {
     return 0;
@@ -117,7 +127,24 @@ DescriptorAllocation DescriptorAllocatorPage::Allocate(uint32_t numDescriptors)
     return DescriptorAllocation();
 }
 
+void DescriptorAllocatorPage::Free(DescriptorAllocation&& descriptorHandle, uint64_t frameNumber)
+{
+}
+
 void DescriptorAllocatorPage::ReleaseStaleDescriptors(uint64_t frameNumber)
+{
+}
+
+uint32_t DescriptorAllocatorPage::ComputeOffset(D3D12_CPU_DESCRIPTOR_HANDLE handle)
+{
+    return 0;
+}
+
+void DescriptorAllocatorPage::AddNewBlock(uint32_t offset, uint32_t numDescriptors)
+{
+}
+
+void DescriptorAllocatorPage::FreeBlock(uint32_t offset, uint32_t numDescriptors)
 {
 }
 

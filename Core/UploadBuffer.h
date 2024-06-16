@@ -35,7 +35,7 @@ public:
 
     /// <summary>
     /// 메모리 페이지에 있는 메모리 청크(또는 블록)을 할당합니다.
-    /// (청크(Chunk): 한 개의 묶여진 정보)
+    /// 참고: 청크(Chunk)란, 한 개의 묶여진 정보
     /// </summary>
     /// <param name="sizeInBytes">할당 크기(바이트 단위)</param>
     /// <param name="alignment">할당 메모리 정렬(바이트 단위). e.g., 상수 버퍼에 대한 할당은 256바이트로 정렬되어야 합니다.</param>
