@@ -49,12 +49,12 @@ class DescriptorAllocation
 {
 public:
     // Creates a NULL descriptor.
-    // DescriptorAllocation();
+    DescriptorAllocation();
 
-    /*DescriptorAllocation(D3D12_CPU_DESCRIPTOR_HANDLE descriptor,
+    DescriptorAllocation(D3D12_CPU_DESCRIPTOR_HANDLE descriptor,
         uint32_t numHandles,
         uint32_t descriptorSize,
-        std::shared_ptr<DescriptorAllocatorPage> page);*/
+        std::shared_ptr<DescriptorAllocatorPage> page);
 
     // The destructor will automatically free the allocation.
     //~DescriptorAllocation();
@@ -108,7 +108,7 @@ public:
     /// </summary>
     /// <param name="type">생성할 설명자 힙의 유형</param>
     /// <param name="numDescriptors">설명자 힙에 할당할 디스크립터 수</param>
-    DescriptorAllocatorPage(D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptors);
+    DescriptorAllocatorPage(ID3D12Device2* device, D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptors);
 
     /// <summary>
     /// DescriptorAllocatorPage를 구성하는 데 사용된 설명자 힙 유형을 반환합니다.
@@ -311,7 +311,7 @@ public:
     /// </summary>
     /// <param name="type">DescriptorAllocator가 할당할 설명자의 타입입니다.</param>
     /// <param name="numDescriptorsPerHeap"> 설명자 힙당 설명자 수입니다. 기본값으로 256개의 설명자가 생성됩니다.</param>
-    DescriptorAllocator(D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptorsPerHeap = 256);
+    DescriptorAllocator(ID3D12Device2* device, D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptorsPerHeap = 256);
     virtual ~DescriptorAllocator();
 
     /// <summary>
@@ -361,4 +361,6 @@ private:
     std::set<size_t> m_AvailableHeaps;
 
     std::mutex m_AllocationMutex;
+
+    ID3D12Device2* _device;
 };
