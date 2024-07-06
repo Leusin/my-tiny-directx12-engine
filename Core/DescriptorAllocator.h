@@ -45,6 +45,8 @@
 #include <set> // std::set 사용. DescriptorAllocator에서 사용할 페이지 풀을 정렬된 인덱스 목록으로 저장합니다.
 #include <vector>
 
+class DescriptorAllocatorPage;
+
 class DescriptorAllocation
 {
 public:
@@ -71,10 +73,10 @@ public:
     bool IsNull() const;
 
     // Get a descriptor at a particular offset in the allocation.
-    // D3D12_CPU_DESCRIPTOR_HANDLE GetDescriptorHandle(uint32_t offset = 0) const;
+    D3D12_CPU_DESCRIPTOR_HANDLE GetDescriptorHandle(uint32_t offset = 0) const;
 
     // Get the number of (consecutive) handles for this allocation.
-    // uint32_t GetNumHandles() const;
+    uint32_t GetNumHandles() const;
 
 
     // Get the heap that this allocation came from.
