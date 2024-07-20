@@ -45,43 +45,65 @@
 #include <set> // std::set 사용. DescriptorAllocator에서 사용할 페이지 풀을 정렬된 인덱스 목록으로 저장합니다.
 #include <vector>
 
+/// 내부적으로 할당을 관리하는 데 사용됩니다.
 class DescriptorAllocatorPage;
 
+/// <summary>
+/// 디스크립터 힙에서 단일 할당을 나타내는데 사용됩니다.
+/// </summary>
 class DescriptorAllocation
 {
 public:
-    // Creates a NULL descriptor.
+    // NULL descriptor를 생성합니다.
     DescriptorAllocation();
 
+    // DescriptorAllocatorPage::Allocate 메서드에서 유효한
+    // DescriptorAllocation을 생성하는 데 사용됩니다.
     DescriptorAllocation(D3D12_CPU_DESCRIPTOR_HANDLE descriptor,
         uint32_t numHandles,
         uint32_t descriptorSize,
         std::shared_ptr<DescriptorAllocatorPage> page);
 
-    // The destructor will automatically free the allocation.
-    //~DescriptorAllocation();
+    // 할당이 발생한 DescriptorAllocatorPage를 할당 해제합니다.
+    ~DescriptorAllocation();
 
-    // Copies are not allowed.
-    // DescriptorAllocation(const DescriptorAllocation&)            = delete;
-    // DescriptorAllocation& operator=(const DescriptorAllocation&) = delete;
+    // 복사가 허용되지 않습니다.
+    DescriptorAllocation(const DescriptorAllocation&)            = delete;
+    DescriptorAllocation& operator=(const DescriptorAllocation&) = delete;
 
-    // Move is allowed.
-    // DescriptorAllocation(DescriptorAllocation&& allocation);
-    // DescriptorAllocation& operator=(DescriptorAllocation&& other);
+    // 이동은 허용됩니다.
+    DescriptorAllocation(DescriptorAllocation&& allocation) noexcept;
+    DescriptorAllocation& operator=(DescriptorAllocation&& other) noexcept;
 
-    // Check if this a valid descriptor.
+    //  DescriptorAllocation에 유효한 설명자가 포함되어 있는지 확인하는 데 사용됩니다.
     bool IsNull() const;
 
-    // Get a descriptor at a particular offset in the allocation.
+    // 인접한 디스크립터 블록 내의 특정 오프셋에서
+    // 기본 D3D12_CPU_DESCRIPTOR_HANDLE을 가져오는 데 사용됩니다.
     D3D12_CPU_DESCRIPTOR_HANDLE GetDescriptorHandle(uint32_t offset = 0) const;
 
-    // Get the number of (consecutive) handles for this allocation.
+    // DescriptorAllocation에 포함된 연속된 설명자 핸들의 수를 가져오는 데 사용됩니다.
     uint32_t GetNumHandles() const;
 
 
-    // Get the heap that this allocation came from.
-    // (For internal use only).
-    // std::shared_ptr<DescriptorAllocatorPage> GetDescriptorAllocatorPage() const;
+    // DescriptorAllocator의 출처가 되는 DescriptorAllocatorPage를 쿼리하는 데 사용됩니다.
+    std::shared_ptr<DescriptorAllocatorPage> GetDescriptorAllocatorPage() const;
+
+private:
+    // DescriptorAllocation가 원래의 DescriptorAllocatorPage로 되돌리기 위해 사용합니다. 
+    // DescriptorAllocation이 소멸되거나 다른 DescriptorAllocation이 할당(이동)될 때 사용됩니다.
+    void Free();
+
+    // 할당 내에서 첫 번째 D3D12_CPU_DESCRIPTOR_HANDLE에 대한 핸들입니다.
+    D3D12_CPU_DESCRIPTOR_HANDLE m_Descriptor;
+    // DescriptorAllocation의 총 디스크립터 수를 저장합니다.
+    uint32_t m_NumHandles;
+    // 각 설명자의 증분 크기를 저장합니다. 
+    // 할당 내에서 특정 디스크립터의 오프셋을 계산하는 데 사용됩니다.
+    uint32_t m_DescriptorSize;
+
+    // 할당의 출처가 된 원래 페이지로 돌아가는 포인터입니다.
+    std::shared_ptr<DescriptorAllocatorPage> m_Page;
 };
 
 
@@ -234,12 +256,12 @@ private:
     using FreeListBySize = std::multimap<SizeType, FreeListByOffset::iterator>;
 
     /// <summary>
-    /// 단순히 free list에 있는 블록의 크기와 해당 항목에 대한 참조(이터레이터)를 
-    /// FreeListBySize 맵에 저장합니다. FreeBlockInfo 구조체는 free list에서 인접한 
-    /// 블록을 병합할 때 해당 항목을 검색하지 않고 빠르게 제거할 수 있도록 
+    /// 단순히 free list에 있는 블록의 크기와 해당 항목에 대한 참조(이터레이터)를
+    /// FreeListBySize 맵에 저장합니다. FreeBlockInfo 구조체는 free list에서 인접한
+    /// 블록을 병합할 때 해당 항목을 검색하지 않고 빠르게 제거할 수 있도록
     /// FreeListBySize 맵에 해당 항목에 대한 이터레이터를 저장합니다.
     /// </summary>
-    /// 
+    ///
     struct FreeBlockInfo
     {
         FreeBlockInfo(SizeType size)
@@ -252,7 +274,7 @@ private:
     };
 
     /// <summary>
-    /// 할당 해제된 프레임이 GPU에서 실행이 완료될 때까지 재사용할 수 없는 
+    /// 할당 해제된 프레임이 GPU에서 실행이 완료될 때까지 재사용할 수 없는
     /// (할당 해제된)설명자 힙의 설명자를 추적하는 데 사용됩니다.
     /// </summary>
     struct StaleDescriptorInfo
@@ -286,11 +308,11 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_d3d12DescriptorHeap;
     // 클래스에서 사용하는 설명자 힙의 유형.
-    D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType; 
+    D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType;
     CD3DX12_CPU_DESCRIPTOR_HANDLE m_BaseDescriptor;
     // 설명자 힙 내 설명자의 증분(increment) 크기는 제조업체에 따라 다르므로 런타임에 쿼리해야 합니다.
-    uint32_t m_DescriptorHandleIncrementSize; 
-    uint32_t m_NumDescriptorsInHeap; //설명자 힙에 있는 총 설명자 개수.
+    uint32_t m_DescriptorHandleIncrementSize;
+    uint32_t m_NumDescriptorsInHeap; // 설명자 힙에 있는 총 설명자 개수.
     uint32_t m_NumFreeHandles;
 
     // 멀티 스레드에서 안전한 액세스 할당 및 할당 해제를 보장하는 데 사용됩니다.

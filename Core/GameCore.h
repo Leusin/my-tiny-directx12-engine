@@ -130,8 +130,6 @@ private:
 
 namespace gcore
 {
-// int RunApplication(IGameApp& app, const wchar_t* className, HINSTANCE hInst, int nCmdShow);
-
 class RunApplication
 {
 public:
@@ -147,6 +145,8 @@ public:
 
     void SetFullscreen(bool fullscreen);
 
+    static uint64_t GetFrameCount();
+
 private:
     void InitializeWindow(const wchar_t* className, HINSTANCE hInst);
     void Initialize();
@@ -158,7 +158,7 @@ private:
 
     HighResolutionClock m_UpdateClock;
     HighResolutionClock m_RenderClock;
-    uint64_t m_FrameCounter;
+    static uint64_t ms_FrameCounter;
 
     IGameApp& m_app;
     bool m_isSupending;

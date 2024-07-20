@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "DescriptorAllocator.h"
 
+#include "GameCore.h" // gcore::RunApplication::GetFrameCount 메서드 사용
+
 DescriptorAllocator::DescriptorAllocator(ID3D12Device2* device, D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptorsPerHeap)
     : _device(device)
     , m_HeapType(type)
@@ -330,6 +332,10 @@ void DescriptorAllocatorPage::FreeBlock(uint32_t offset, uint32_t numDescriptors
 }
 
 DescriptorAllocation::DescriptorAllocation()
+    : m_Descriptor{ 0 }
+    , m_NumHandles(0)
+    , m_DescriptorSize(0)
+    , m_Page(nullptr)
 {
 }
 
@@ -337,20 +343,80 @@ DescriptorAllocation::DescriptorAllocation(D3D12_CPU_DESCRIPTOR_HANDLE descripto
     uint32_t numHandles,
     uint32_t descriptorSize,
     std::shared_ptr<DescriptorAllocatorPage> page)
+    : m_Descriptor(descriptor)
+    , m_NumHandles(numHandles)
+    , m_DescriptorSize(descriptorSize)
+    , m_Page(page)
 {
+}
+
+DescriptorAllocation::~DescriptorAllocation()
+{
+    Free();
+}
+
+DescriptorAllocation::DescriptorAllocation(DescriptorAllocation&& allocation) noexcept
+    : m_Descriptor(allocation.m_Descriptor)
+    , m_NumHandles(allocation.m_NumHandles)
+    , m_DescriptorSize(allocation.m_DescriptorSize)
+    , m_Page(std::move(allocation.m_Page))
+{
+    allocation.m_Descriptor.ptr = 0;
+    allocation.m_NumHandles     = 0;
+    allocation.m_DescriptorSize = 0;
+}
+
+DescriptorAllocation& DescriptorAllocation::operator=(DescriptorAllocation&& other) noexcept
+{
+    // 다른 설명자를 현재 설명자로 이동하기 전에 
+    // 원래 설명자를 해제.
+    Free();
+
+    m_Descriptor     = other.m_Descriptor;
+    m_NumHandles     = other.m_NumHandles;
+    m_DescriptorSize = other.m_DescriptorSize;
+    m_Page           = std::move(other.m_Page);
+
+    other.m_Descriptor.ptr = 0;
+    other.m_NumHandles     = 0;
+    other.m_DescriptorSize = 0;
+
+    return *this;
 }
 
 bool DescriptorAllocation::IsNull() const
 {
-    return false;
+    return m_Descriptor.ptr == 0;
 }
 
+// DescriptorAllocation 내의 특정 오프셋에 있는 디스크립터에 대한 
+// D3D12_CPU_DESCRIPTOR_HANDLE을 반환합니다.
 D3D12_CPU_DESCRIPTOR_HANDLE DescriptorAllocation::GetDescriptorHandle(uint32_t offset) const
 {
-    return D3D12_CPU_DESCRIPTOR_HANDLE();
+    assert(offset < m_NumHandles);
+    return { m_Descriptor.ptr + (m_DescriptorSize * offset) };
 }
 
 uint32_t DescriptorAllocation::GetNumHandles() const
 {
-    return 0;
+    return m_NumHandles;
+}
+
+std::shared_ptr<DescriptorAllocatorPage> DescriptorAllocation::GetDescriptorAllocatorPage() const
+{
+    return m_Page;
+}
+
+void DescriptorAllocation::Free()
+{
+    if (!IsNull() && m_Page)
+    {
+        m_Page->Free(std::move(*this), gcore::RunApplication::GetFrameCount());
+
+        m_Descriptor.ptr = 0;
+        m_NumHandles     = 0;
+        m_DescriptorSize = 0;
+        m_Page.reset();
+        m_Page.reset();
+    }
 }

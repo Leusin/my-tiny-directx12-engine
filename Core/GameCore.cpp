@@ -81,7 +81,7 @@ bool RunApplication::Update()
 {
     // OnUpdate
     m_UpdateClock.Tick();
-    m_FrameCounter++;
+    ms_FrameCounter++;
 
     UpdateEventArgs updateEventArgs(m_UpdateClock.GetDeltaSeconds(), m_UpdateClock.GetTotalSeconds());
     m_app.Update(updateEventArgs);
@@ -203,6 +203,8 @@ MouseButtonEventArgs::MouseButton DecodeMouseButton(UINT messageID)
 
     return mouseButton;
 }
+
+uint64_t RunApplication::ms_FrameCounter = 0; // 정적 멤버 변수 정의 및 초기화
 
 LRESULT RunApplication::GetWinMssageProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -502,6 +504,11 @@ void RunApplication::SetFullscreen(bool fullscreen)
             ::ShowWindow(m_hWnd, SW_NORMAL);
         }
     }
+}
+
+uint64_t RunApplication::GetFrameCount()
+{
+    return ms_FrameCounter;
 }
 
 void RunApplication::CreateConsole()
